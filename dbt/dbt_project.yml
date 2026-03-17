@@ -1,0 +1,29 @@
+# dbt project for trip ingestion pipeline
+# Staging: clean raw, build PostGIS geometry, origin_grid, destination_grid, time_bucket
+# Mart: grouped trips, weekly aggregates for reports
+
+name: 'trip_ingestion'
+version: '1.0.0'
+config-version: 2
+
+profile: 'trip_ingestion'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  trip_ingestion:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: mart

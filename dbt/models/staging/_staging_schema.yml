@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: trips
+        description: Raw trip data with lat/lon columns
+
+models:
+  - name: stg_trips
+    description: Staged trips with PostGIS geometry, origin_grid, destination_grid, time_bucket
+    columns:
+      - name: origin_geom
+        description: PostGIS point geometry for origin (SRID 4326)
+      - name: destination_geom
+        description: PostGIS point geometry for destination (SRID 4326)
+      - name: origin_grid
+        description: ST_GeoHash(origin_geom, 5) for similarity grouping
+      - name: destination_grid
+        description: ST_GeoHash(destination_geom, 5) for similarity grouping
+      - name: time_bucket
+        description: night/morning/afternoon/evening based on trip hour
+      - name: week_start
+        description: Start of week for trip_datetime

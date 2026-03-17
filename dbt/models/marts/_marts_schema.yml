@@ -1,0 +1,7 @@
+version: 2
+
+models:
+  - name: mart_trip_groups
+    description: Trips grouped by origin_grid, destination_grid, time_bucket (similarity)
+  - name: mart_weekly_trips
+    description: Weekly trip counts by region and origin_grid for reports

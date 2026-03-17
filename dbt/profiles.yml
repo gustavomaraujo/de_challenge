@@ -1,0 +1,15 @@
+# dbt profiles - used by Airflow and locally
+# Connection to PostgreSQL with PostGIS
+
+trip_ingestion:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER', 'trips') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'trips') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'trips') }}"
+      schema: staging
+      threads: 4
