@@ -164,3 +164,7 @@ See `sql/bonus_queries.sql`:
 
 1. From the two most commonly appearing regions, which is the latest datasource?
 2. What regions has the "cheap_mobile" datasource appeared in?
+
+
+## Presenttion:
+[Project Presentation (Google Drive)](https://drive.google.com/file/d/14IjVgIFPox_u37Yttu6meWzaMHWpvx5n/view?usp=sharing)
