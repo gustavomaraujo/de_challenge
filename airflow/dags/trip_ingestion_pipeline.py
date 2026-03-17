@@ -2,19 +2,28 @@
 Trip Ingestion Pipeline DAG
 Triggered via API: POST /ingestions with file_path; DAG receives conf: ingestion_id, file_path.
 Tasks: register_ingestion -> validate_csv -> load_raw -> run_dbt_staging -> run_dbt_marts -> finalize_ingestion_status
+Publishes real-time status events to Redis for SSE streaming (no polling).
 """
 import os
+import subprocess
 import uuid
 from datetime import datetime
 
 import psycopg2
-from redis import Redis
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 
 from validate_csv_operator import ValidateCsvOperator
 from load_raw_operator import LoadRawOperator
+
+# Import event publisher (services mounted at /opt/airflow/services)
+from services.event_service import publish_event
+
+
+def _publish_step(ingestion_id: str, status: str, step: str):
+    """Publish status event at task start."""
+    publish_event(ingestion_id, {"status": status, "step": step})
 
 
 def get_pg_conn():
@@ -27,13 +36,6 @@ def get_pg_conn():
     )
 
 
-def publish_redis(ingestion_id: str, event: dict):
-    import json
-    r = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
-    r.publish(f"ingestion:{ingestion_id}:events", json.dumps(event))
-    r.close()
-
-
 def register_ingestion(**context):
     conf = context["dag_run"].conf or {}
     ingestion_id = conf.get("ingestion_id")
@@ -42,6 +44,8 @@ def register_ingestion(**context):
 
     if not ingestion_id:
         raise ValueError("conf.ingestion_id is required")
+
+    _publish_step(ingestion_id, "running", "register_ingestion")
 
     conn = get_pg_conn()
     try:
@@ -55,9 +59,56 @@ def register_ingestion(**context):
                 (dag_run_id, uuid.UUID(ingestion_id)),
             )
         conn.commit()
-        publish_redis(ingestion_id, {"status": "running", "task": "register_ingestion"})
     finally:
         conn.close()
+
+
+def run_dbt_staging(**context):
+    """Publish status, then run dbt staging."""
+    conf = context["dag_run"].conf or {}
+    ingestion_id = conf.get("ingestion_id")
+    if not ingestion_id:
+        raise ValueError("conf.ingestion_id is required")
+
+    _publish_step(ingestion_id, "running_dbt_staging", "run_dbt_staging")
+
+    try:
+        result = subprocess.run(
+            ["dbt", "run", "--select", "staging.*"],
+            cwd="/opt/airflow/dbt",
+            env={**os.environ, "POSTGRES_HOST": os.getenv("POSTGRES_HOST", "postgres")},
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"dbt staging failed: {result.stderr}")
+    except Exception as e:
+        publish_event(ingestion_id, {"status": "failed", "step": "run_dbt_staging", "error": str(e)})
+        raise
+
+
+def run_dbt_marts(**context):
+    """Publish status, then run dbt marts."""
+    conf = context["dag_run"].conf or {}
+    ingestion_id = conf.get("ingestion_id")
+    if not ingestion_id:
+        raise ValueError("conf.ingestion_id is required")
+
+    _publish_step(ingestion_id, "running_dbt_marts", "run_dbt_marts")
+
+    try:
+        result = subprocess.run(
+            ["dbt", "run", "--select", "marts.*"],
+            cwd="/opt/airflow/dbt",
+            env={**os.environ, "POSTGRES_HOST": os.getenv("POSTGRES_HOST", "postgres")},
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"dbt marts failed: {result.stderr}")
+    except Exception as e:
+        publish_event(ingestion_id, {"status": "failed", "step": "run_dbt_marts", "error": str(e)})
+        raise
 
 
 def finalize_ingestion_status(**context):
@@ -66,7 +117,6 @@ def finalize_ingestion_status(**context):
     if not ingestion_id:
         raise ValueError("conf.ingestion_id is required")
 
-    # Check if any task failed
     failed = any(ti.state == "failed" for ti in context["dag_run"].get_task_instances())
     status = "failed" if failed else "completed"
     error_msg = None
@@ -86,17 +136,18 @@ def finalize_ingestion_status(**context):
                 (status, error_msg, uuid.UUID(ingestion_id)),
             )
         conn.commit()
-        evt = {"status": status}
-        if error_msg:
-            evt["error"] = error_msg
-        publish_redis(ingestion_id, evt)
     finally:
         conn.close()
+
+    evt = {"status": status, "step": "finalize_ingestion_status"}
+    if error_msg:
+        evt["error"] = error_msg
+    publish_event(ingestion_id, evt)
 
 
 with DAG(
     dag_id="trip_ingestion_pipeline",
-    schedule=None,  # Triggered only via API
+    schedule=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["ingestion", "trips"],
@@ -118,14 +169,16 @@ with DAG(
         ingestion_id="{{ dag_run.conf.ingestion_id }}",
     )
 
-    run_dbt_staging = BashOperator(
+    run_dbt_staging = PythonOperator(
         task_id="run_dbt_staging",
-        bash_command="cd /opt/airflow/dbt && dbt run --select staging.*",
+        python_callable=run_dbt_staging,
+        provide_context=True,
     )
 
-    run_dbt_marts = BashOperator(
+    run_dbt_marts = PythonOperator(
         task_id="run_dbt_marts",
-        bash_command="cd /opt/airflow/dbt && dbt run --select marts.*",
+        python_callable=run_dbt_marts,
+        provide_context=True,
     )
 
     finalize = PythonOperator(

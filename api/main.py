@@ -5,7 +5,11 @@ Trip Ingestion API
 - GET /ingestions/{id}/events: SSE stream via Redis pub/sub (no polling)
 - GET /reports/weekly-average/bbox, /region: weekly avg trips
 """
+import logging
+
 from fastapi import FastAPI
+
+logging.basicConfig(level=logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import ingestions, events, reports

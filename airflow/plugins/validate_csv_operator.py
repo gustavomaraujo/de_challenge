@@ -1,12 +1,13 @@
 """
 Validate CSV operator: checks file exists and schema (region, origin_coord, destination_coord, datetime, datasource).
-Fails DAG if invalid.
+Fails DAG if invalid. Publishes validating_csv status at start.
 """
 import csv
 import os
 import re
 
 from airflow.models import BaseOperator
+from services.event_service import publish_event
 
 
 class ValidateCsvOperator(BaseOperator):
@@ -17,29 +18,38 @@ class ValidateCsvOperator(BaseOperator):
         self.file_path = file_path
 
     def execute(self, context):
-        base = "/opt/airflow"
-        path = self.file_path if os.path.isabs(self.file_path) else os.path.join(base, self.file_path)
+        ingestion_id = (context.get("dag_run") or {}).conf.get("ingestion_id") if context else None
+        if ingestion_id:
+            publish_event(ingestion_id, {"status": "validating_csv", "step": "validate_csv"})
 
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"CSV file not found: {path}")
+        try:
+            base = "/opt/airflow"
+            path = self.file_path if os.path.isabs(self.file_path) else os.path.join(base, self.file_path)
 
-        required_columns = {"region", "origin_coord", "destination_coord", "datetime", "datasource"}
-        point_re = re.compile(r"POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"CSV file not found: {path}")
 
-        with open(path, "r") as f:
-            reader = csv.DictReader(f)
-            cols = set(reader.fieldnames or [])
-            missing = required_columns - cols
-            if missing:
-                raise ValueError(f"CSV missing required columns: {missing}")
+            required_columns = {"region", "origin_coord", "destination_coord", "datetime", "datasource"}
+            point_re = re.compile(r"POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)")
 
-            for i, row in enumerate(reader):
-                if i >= 3:
-                    break
-                for key in ["origin_coord", "destination_coord"]:
-                    val = row.get(key, "")
-                    if not point_re.match(val.strip()):
-                        raise ValueError(f"Invalid POINT format in row {i+2}: {val}")
+            with open(path, "r") as f:
+                reader = csv.DictReader(f)
+                cols = set(reader.fieldnames or [])
+                missing = required_columns - cols
+                if missing:
+                    raise ValueError(f"CSV missing required columns: {missing}")
 
-        self.log.info(f"CSV validated: {path}")
-        return path
+                for i, row in enumerate(reader):
+                    if i >= 3:
+                        break
+                    for key in ["origin_coord", "destination_coord"]:
+                        val = row.get(key, "")
+                        if not point_re.match(val.strip()):
+                            raise ValueError(f"Invalid POINT format in row {i+2}: {val}")
+
+            self.log.info(f"CSV validated: {path}")
+            return path
+        except Exception as e:
+            if ingestion_id:
+                publish_event(ingestion_id, {"status": "failed", "step": "validate_csv", "error": str(e)})
+            raise
