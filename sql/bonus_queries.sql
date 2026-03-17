@@ -5,7 +5,7 @@
 -- (Datasource with the most recent trip in those two regions)
 WITH top_regions AS (
     SELECT region
-    FROM staging.stg_trips
+    FROM staging_staging.stg_trips
     GROUP BY region
     ORDER BY count(*) DESC
     LIMIT 2
@@ -14,7 +14,7 @@ latest_per_datasource AS (
     SELECT
         t.datasource,
         max(t.trip_datetime) AS latest_trip
-    FROM staging.stg_trips t
+    FROM staging_staging.stg_trips t
     WHERE t.region IN (SELECT region FROM top_regions)
     GROUP BY t.datasource
 )
@@ -26,5 +26,5 @@ LIMIT 1;
 
 -- Q2: What regions has the "cheap_mobile" datasource appeared in?
 SELECT DISTINCT region
-FROM staging.stg_trips
+FROM staging_staging.stg_trips
 WHERE datasource = 'cheap_mobile';

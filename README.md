@@ -95,7 +95,10 @@ GIST indexes on geometry columns (`origin_geom`, `destination_geom`) in staging/
 
 ### 4. dbt incremental models
 
-Staging and mart models can use `incremental` materialization to process only new data. At scale, this avoids full-table scans and reduces dbt run time.
+- **stg_trips**: Incremental merge on `id`; filters raw by `ingested_at` to process only new rows.
+- **mart_trip_groups_staging** / **mart_weekly_trips_staging**: Incremental append; each run adds new aggregated batches.
+- **mart_trip_groups** / **mart_weekly_trips**: Views that sum from staging tables for the full picture.
+- At scale, this avoids full-table scans and reduces dbt run time while preserving historical data.
 
 ### 5. Pre-aggregated mart tables
 

@@ -1,7 +1,11 @@
 version: 2
 
 models:
+  - name: mart_trip_groups_staging
+    description: Incremental append table for trip groups; preserves historical batches
   - name: mart_trip_groups
-    description: Trips grouped by origin_grid, destination_grid, time_bucket (similarity)
+    description: View aggregating mart_trip_groups_staging by origin_grid, destination_grid, time_bucket
+  - name: mart_weekly_trips_staging
+    description: Incremental append table for weekly trips; preserves historical batches
   - name: mart_weekly_trips
-    description: Weekly trip counts by region and origin_grid for reports
+    description: View aggregating mart_weekly_trips_staging for API reports

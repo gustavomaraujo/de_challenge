@@ -1,10 +1,13 @@
 {{
   config(
-    materialized='view',
-    schema='staging'
+    materialized='incremental',
+    schema='staging',
+    unique_key='id',
+    incremental_strategy='merge'
   )
 }}
 -- Staging: clean raw, build PostGIS geometry, standardized similarity (origin_grid, destination_grid, time_bucket)
+-- Incremental: keeps historical data, only processes new rows since last run (by ingested_at)
 -- origin_grid = ST_GeoHash(origin_geom, 5), destination_grid = ST_GeoHash(destination_geom, 5)
 -- time_bucket = night/morning/afternoon/evening based on trip hour
 
@@ -21,6 +24,9 @@ with raw as (
         datasource,
         ingested_at
     from {{ source('raw', 'trips') }}
+    {% if is_incremental() %}
+    where ingested_at > (select coalesce(max(ingested_at), '1970-01-01'::timestamptz) from {{ this }})
+    {% endif %}
 )
 select
     id,
